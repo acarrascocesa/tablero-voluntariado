@@ -1,5 +1,6 @@
 import datetime
 import numpy as np
+import re
 from io import BytesIO
 from typing import Optional, Tuple, List
 
@@ -120,6 +121,52 @@ else:
     st.sidebar.write("País: columna no encontrada")
     pais_sel = []
 
+# Idiomas: detectar columnas por patrón y extraer idioma y nivel
+lang_pattern = re.compile(r"Idiomas.*:\s*(.+?)\s+(B[áa]sico|Intermedio|Avanzado)", re.IGNORECASE)
+
+def strip_accents(s: str) -> str:
+    import unicodedata
+    return (
+        unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode("ascii")
+    )
+
+def canon_lang(name: str) -> str:
+    n = strip_accents(str(name).strip().lower())
+    mapping = {
+        "ingles": "Inglés",
+        "espanol": "Español",
+        "frances": "Francés",
+        "portugues": "Portugués",
+    }
+    return mapping.get(n, name.strip().title())
+
+def canon_level(level: str) -> str:
+    l = strip_accents(str(level).strip().lower())
+    if l.startswith("basico"):
+        return "Básico"
+    if l.startswith("intermedio"):
+        return "Intermedio"
+    if l.startswith("avanzado"):
+        return "Avanzado"
+    return level.strip().title()
+
+lang_cols = []  # tuples: (col_name, language, level)
+for c in df.columns:
+    m = lang_pattern.search(str(c))
+    if m:
+        lang_raw, level_raw = m.group(1), m.group(2)
+        lang_cols.append((c, canon_lang(lang_raw), canon_level(level_raw)))
+
+languages = sorted(list({lc[1] for lc in lang_cols}))
+levels = ["Básico", "Intermedio", "Avanzado"]
+
+if languages:
+    lang_sel = st.sidebar.multiselect("Idiomas", options=languages, default=[])
+    level_sel = st.sidebar.multiselect("Nivel de idioma", options=levels, default=[])
+else:
+    lang_sel = []
+    level_sel = []
+
 # Áreas de interés
 areas_col = "Áreas de interés (lista)"
 areas_options: List[str] = []
@@ -163,6 +210,20 @@ if nivel_sel:
     mask &= df["Nivel académico"].astype(str).isin(nivel_sel)
 if pais_sel and pais_col:
     mask &= df[pais_col].astype(str).str.strip().isin(pais_sel)
+
+# Filtro por idiomas y nivel (match ANY)
+if lang_cols and (lang_sel or level_sel):
+    # columnas candidatas en función de selección
+    selected_cols = [
+        c for (c, L, V) in lang_cols
+        if (not lang_sel or L in lang_sel) and (not level_sel or V in level_sel)
+    ]
+    if selected_cols:
+        any_lang = pd.Series([False] * len(df))
+        for c in selected_cols:
+            s = df[c].astype(str).str.strip()
+            any_lang |= (~s.eq("") & ~df[c].isna())
+        mask &= any_lang
 areas_mask = filter_by_areas(df, areas_sel, match_all)
 mask &= areas_mask
 
@@ -256,6 +317,28 @@ with colB:
             st.bar_chart(pd.Series({"Sin edad": sin_edad_count}))
         else:
             st.write("No hay datos de edad válidos para el histograma.")
+
+# Idiomas: gráfico por nivel
+st.subheader("Idiomas")
+if lang_cols:
+    # contar por idioma y nivel en df_filtrado
+    df_lang = df_filtered.copy()
+    counts = {}
+    for c, L, V in lang_cols:
+        s = df_lang[c].astype(str).str.strip()
+        cnt = int((~s.eq("") & ~df_lang[c].isna()).sum())
+        counts[(L, V)] = counts.get((L, V), 0) + cnt
+    if counts:
+        # pivot a dataframe ancho: index=idioma, columns=nivel
+        idx_langs = sorted({L for (L, _) in counts.keys()})
+        cols_levels = ["Básico", "Intermedio", "Avanzado"]
+        data = {lvl: [counts.get((L, lvl), 0) for L in idx_langs] for lvl in cols_levels}
+        chart_df = pd.DataFrame(data, index=idx_langs)
+        st.bar_chart(chart_df)
+    else:
+        st.write("No hay datos de idiomas para mostrar.")
+else:
+    st.write("Columnas de idiomas no detectadas.")
 
 
 # Tabla
