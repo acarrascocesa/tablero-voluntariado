@@ -96,6 +96,25 @@ st.sidebar.header("Controles")
 # Búsqueda por nombre
 query = st.sidebar.text_input("Buscar por nombre")
 
+# Búsqueda por identificación
+# Detectar columna de identificación de forma flexible
+id_candidates = [
+    "Identificación",
+    "Identificacion",
+    "Número de identificación",
+    "Numero de identificacion",
+    "Documento",
+    "DNI",
+    "Cédula",
+    "Cedula",
+    "ID",
+    "Unnamed: 8",
+]
+id_col = next((c for c in id_candidates if c in df.columns), None)
+id_query = st.sidebar.text_input("Buscar por identificación")
+if id_query and not id_col:
+    st.sidebar.caption("Columna de identificación no encontrada en el dataset")
+
 # Filtros categóricos
 sexo_vals = sorted([x for x in df.get("Sexo", pd.Series()).dropna().astype(str).unique()])
 sexo_sel = st.sidebar.multiselect("Sexo", options=sexo_vals, default=[])
@@ -204,6 +223,8 @@ hist_show_no_age = st.sidebar.checkbox("Histograma: mostrar barra 'Sin edad'", v
 mask = pd.Series([True] * len(df))
 if query:
     mask &= df["Nombre completo"].fillna("").str.contains(query.strip(), case=False, na=False)
+if id_query and id_col:
+    mask &= df[id_col].astype(str).fillna("").str.contains(id_query.strip(), case=False, na=False)
 if sexo_sel:
     mask &= df["Sexo"].astype(str).isin(sexo_sel)
 if nivel_sel:
