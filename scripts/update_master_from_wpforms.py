@@ -226,8 +226,20 @@ def main(master_path, wpforms_path, sheet_name):
 
     # Lecturas
     dfm = pd.read_excel(master_path, sheet_name=sheet_name)
-    xls = pd.ExcelFile(wpforms_path)
-    dfn = pd.read_excel(xls, sheet_name=xls.sheet_names[0])
+    # Soporte para WPForms en XLSX/XLS y CSV
+    ext = os.path.splitext(wpforms_path)[1].lower()
+    if ext in {".xlsx", ".xls"}:
+        xls = pd.ExcelFile(wpforms_path)
+        dfn = pd.read_excel(xls, sheet_name=xls.sheet_names[0])
+    elif ext == ".csv":
+        # Detectar separador automáticamente y manejar BOM
+        try:
+            dfn = pd.read_csv(wpforms_path, sep=None, engine="python", encoding="utf-8-sig")
+        except Exception:
+            # Fallback a coma estándar
+            dfn = pd.read_csv(wpforms_path, encoding="utf-8-sig")
+    else:
+        raise ValueError(f"Formato de WPForms no soportado: {ext}. Usa .xlsx/.xls o .csv")
 
     keys_m = build_keys(dfm)
 
