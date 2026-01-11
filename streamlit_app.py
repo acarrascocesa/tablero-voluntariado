@@ -1,14 +1,30 @@
 import datetime
 import numpy as np
+import os
 import re
 from io import BytesIO
 from typing import Optional, Tuple, List
 
 import pandas as pd
+from PIL import Image
 import streamlit as st
 
 
-st.set_page_config(page_title="Tablero Voluntariado", layout="wide")
+# Configuración de página con logo si existe
+logo_path = "assets/logo.png"
+page_icon = None
+
+if os.path.exists(logo_path):
+    try:
+        page_icon = Image.open(logo_path)
+    except Exception:
+        pass
+
+if page_icon:
+    st.set_page_config(page_title="Tablero Voluntariado", page_icon=page_icon, layout="wide")
+else:
+    st.set_page_config(page_title="Tablero Voluntariado", layout="wide")
+
 st.title("Tablero de Voluntariado")
 
 
@@ -91,6 +107,9 @@ def ensure_arrow_compatible(df_in: pd.DataFrame) -> pd.DataFrame:
 
 
 # Sidebar: controles y filtros
+if os.path.exists(logo_path):
+    st.sidebar.image(logo_path, use_container_width=True)
+
 st.sidebar.header("Controles")
 
 # Búsqueda por nombre
