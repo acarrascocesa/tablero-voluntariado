@@ -32,7 +32,11 @@ st.title("Tablero de Voluntariado")
 def load_data() -> Tuple[pd.DataFrame, Optional[str]]:
     path = "Voluntariado Base + WPForms - Areas (Dedup Nombre) - Pais Normalizado.xlsx"
     try:
-        df = pd.read_excel(path, sheet_name="Merged")
+        # Intentar leer 'Merged' o la primera hoja
+        try:
+            df = pd.read_excel(path, sheet_name="Merged")
+        except ValueError:
+            df = pd.read_excel(path, sheet_name=0)
         return df, path
     except Exception:
         return pd.DataFrame(), None
@@ -91,7 +95,7 @@ def to_excel_bytes(df: pd.DataFrame, sheet_name: str = "Merged") -> bytes:
 # Carga de datos
 df, source_path = load_data()
 if source_path is None or df.empty:
-    st.error("No se encontró el archivo deduplicado por nombre: 'Voluntariado Base + WPForms - Areas (Dedup Nombre).xlsx'.")
+    st.error("No se encontró el archivo maestro: 'Voluntariado Base + WPForms - Areas (Dedup Nombre) - Pais Normalizado.xlsx'.")
     st.stop()
 
 df = ensure_fullname(df.copy())
