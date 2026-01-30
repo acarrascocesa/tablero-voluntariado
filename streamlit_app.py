@@ -8,6 +8,7 @@ from typing import Optional, Tuple, List
 import pandas as pd
 from PIL import Image
 import streamlit as st
+import altair as alt
 
 
 # Configuración de página con logo si existe
@@ -26,6 +27,43 @@ else:
     st.set_page_config(page_title="Tablero Voluntariado", layout="wide")
 
 st.title("Tablero de Voluntariado")
+
+st.markdown("""
+<style>
+    /* Metric Cards */
+    div.css-1r6slb0.e1tzin5v2 {
+        background-color: #ffffff;
+        border: 1px solid #dedede;
+        padding: 10px;
+        border-radius: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+    
+    .metric-card {
+        background-color: #FFFFFF;
+        padding: 20px;
+        border-radius: 12px;
+        border: 1px solid #E0E0E0;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.04);
+        text-align: center;
+        margin-bottom: 10px;
+    }
+    .metric-label {
+        color: #6b7280;
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        font-weight: 600;
+        margin-bottom: 5px;
+    }
+    .metric-value {
+        color: #0F9D58;
+        font-size: 2rem;
+        font-weight: 700;
+        margin: 0;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 
 @st.cache_data(show_spinner=False)
@@ -112,7 +150,7 @@ def ensure_arrow_compatible(df_in: pd.DataFrame) -> pd.DataFrame:
 
 # Sidebar: controles y filtros
 if os.path.exists(logo_path):
-    st.sidebar.image(logo_path, use_container_width=True)
+    st.sidebar.image(logo_path, width="stretch")
 
 st.sidebar.header("Controles")
 
@@ -283,27 +321,62 @@ df_filtered = df[mask].copy()
 
 
 # KPIs
-col1, col2, col3, col4 = st.columns(4)
+# KPIs
+def kpi_card(title, value):
+    st.markdown(f"""
+    <div class="metric-card">
+        <div class="metric-label">{title}</div>
+        <div class="metric-value">{value}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+col1, col2, col3, col4 = st.columns(4, gap="medium")
 with col1:
-    st.metric("Voluntarios (filtrados)", len(df_filtered))
+    kpi_card("Voluntarios", f"{len(df_filtered):,}")
 with col2:
     con_areas = df_filtered.get("Áreas de interés (count)", pd.Series([None]*len(df_filtered))).fillna(0)
-    st.metric("Con áreas marcadas", int((con_areas > 0).sum()))
+    kpi_card("Con Áreas", f"{int((con_areas > 0).sum()):,}")
 with col3:
-    st.metric("Sexo distintos", df_filtered.get("Sexo", pd.Series()).nunique())
+    kpi_card("Sexos Distintos", df_filtered.get("Sexo", pd.Series()).nunique())
 with col4:
-    st.metric("Nivel académico distintos", df_filtered.get("Nivel académico", pd.Series()).nunique())
+    kpi_card("Niveles Acad.", df_filtered.get("Nivel académico", pd.Series()).nunique())
 
 
 # Distribuciones
+# Helper para gráficos consistentes
+def make_simple_bar(df_in, x_col, y_col, title, sort_x=None):
+    c = alt.Chart(df_in).mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3).encode(
+        x=alt.X(x_col, sort=sort_x, axis=alt.Axis(labelAngle=-45, title=None)),
+        y=alt.Y(y_col, axis=alt.Axis(title=None, grid=False)),
+        tooltip=[x_col, y_col],
+        color=alt.value("#0F9D58")
+    ).properties(
+        title=title,
+        height=250
+    ).configure_view(
+        strokeWidth=0
+    )
+    return c
+
+# Distribuciones
 st.subheader("Distribuciones")
-cols = st.columns(3)
+cols = st.columns(3, gap="medium")
 with cols[0]:
     if "Sexo" in df_filtered.columns:
-        st.bar_chart(df_filtered["Sexo"].value_counts().sort_index())
+        counts = df_filtered["Sexo"].value_counts().reset_index()
+        counts.columns = ["Sexo", "Cantidad"]
+        st.altair_chart(
+            make_simple_bar(counts, "Sexo", "Cantidad", "Por Sexo"), 
+            use_container_width=True
+        )
 with cols[1]:
     if "Nivel académico" in df_filtered.columns:
-        st.bar_chart(df_filtered["Nivel académico"].value_counts().sort_index())
+        counts = df_filtered["Nivel académico"].value_counts().reset_index()
+        counts.columns = ["Nivel", "Cantidad"]
+        st.altair_chart(
+            make_simple_bar(counts, "Nivel", "Cantidad", "Por Nivel Académico"),
+            use_container_width=True
+        )
 with cols[2]:
     if areas_col in df_filtered.columns:
         top_areas = (
@@ -315,12 +388,18 @@ with cols[2]:
             .str.strip()
             .value_counts()
             .head(10)
+            .reset_index()
         )
-        st.bar_chart(top_areas)
+        top_areas.columns = ["Área", "Cantidad"]
+        st.altair_chart(
+            make_simple_bar(top_areas, "Área", "Cantidad", "Top 10 Áreas de Interés", sort_x="-y"),
+            use_container_width=True
+        )
 
 # Gráficos adicionales
+# Gráficos adicionales
 st.subheader("Gráficos adicionales")
-colA, colB = st.columns(2)
+colA, colB = st.columns(2, gap="medium")
 with colA:
     # Top países (normalizado si existe)
     if pais_col and pais_col in df_filtered.columns:
@@ -331,36 +410,38 @@ with colA:
             .str.strip()
         )
         pais_series = pais_series[pais_series != ""]
-        top_paises = pais_series.value_counts().head(top_paises_n)
+        top_paises = pais_series.value_counts().head(top_paises_n).reset_index()
+        top_paises.columns = ["País", "Cantidad"]
+        
         if len(top_paises) > 0:
-            st.bar_chart(top_paises)
+            st.altair_chart(
+                make_simple_bar(top_paises, "País", "Cantidad", f"Top {top_paises_n} Países", sort_x="-y"),
+                use_container_width=True
+            )
         else:
-            st.write("No hay países para mostrar.")
+            st.info("No hay países para mostrar.")
     else:
-        st.write("Columna de país no disponible.")
+        st.warning("Columna de país no disponible.")
 
 with colB:
     # Histograma de edades con control de bins y toggle de 'sin edad'
     age_series = pd.to_numeric(df_filtered.get(edad_col, pd.Series()), errors="coerce")
     age_valid = age_series.dropna()
+    
     if len(age_valid) > 0:
-        # Construir histograma
-        min_age_val = int(np.floor(age_valid.min()))
-        max_age_val = int(np.ceil(age_valid.max()))
-        counts, bin_edges = np.histogram(age_valid, bins=bins_edad, range=(min_age_val, max_age_val))
-        labels = [f"{int(bin_edges[i])}–{int(bin_edges[i+1])}" for i in range(len(bin_edges)-1)]
-        hist_series = pd.Series(counts, index=labels)
-        # Agregar barra 'Sin edad' si se solicita
-        if hist_show_no_age:
-            sin_edad_count = int(age_series.isna().sum())
-            hist_series = pd.concat([hist_series, pd.Series({"Sin edad": sin_edad_count})])
-        st.bar_chart(hist_series)
+        chart_data = pd.DataFrame({"Edad": age_valid})
+        
+        # Histograma Altair
+        base = alt.Chart(chart_data)
+        hist = base.mark_bar(color="#0F9D58").encode(
+            x=alt.X("Edad", bin=alt.Bin(maxbins=bins_edad), title="Rango de Edad"),
+            y=alt.Y('count()', title="Voluntarios"),
+            tooltip=[alt.Tooltip("Edad", bin=True), 'count()']
+        ).properties(title="Distribución de Edad")
+        
+        st.altair_chart(hist, use_container_width=True)
     else:
-        if hist_show_no_age:
-            sin_edad_count = int(age_series.isna().sum())
-            st.bar_chart(pd.Series({"Sin edad": sin_edad_count}))
-        else:
-            st.write("No hay datos de edad válidos para el histograma.")
+        st.info("No hay datos de edad válidos para el histograma.")
 
 # Idiomas: gráfico por nivel
 st.subheader("Idiomas")
@@ -371,16 +452,30 @@ if lang_cols:
     for c, L, V in lang_cols:
         s = df_lang[c].astype(str).str.strip()
         cnt = int((~s.eq("") & ~df_lang[c].isna()).sum())
-        counts[(L, V)] = counts.get((L, V), 0) + cnt
+        if cnt > 0:
+            counts[(L, V)] = counts.get((L, V), 0) + cnt
+            
     if counts:
-        # pivot a dataframe ancho: index=idioma, columns=nivel
-        idx_langs = sorted({L for (L, _) in counts.keys()})
-        cols_levels = ["Básico", "Intermedio", "Avanzado"]
-        data = {lvl: [counts.get((L, lvl), 0) for L in idx_langs] for lvl in cols_levels}
-        chart_df = pd.DataFrame(data, index=idx_langs)
-        st.bar_chart(chart_df)
+        # Preparar DataFrame largo para Altair
+        data_list = [{"Idioma": L, "Nivel": V, "Cantidad": C} for (L, V), C in counts.items()]
+        chart_df = pd.DataFrame(data_list)
+        
+        # Orden de niveles
+        level_order = ["Básico", "Intermedio", "Avanzado"]
+        
+        c = alt.Chart(chart_df).mark_bar().encode(
+            x=alt.X("Idioma", sort="-y"),
+            y=alt.Y("Cantidad"),
+            color=alt.Color("Nivel", scale=alt.Scale(domain=level_order, scheme="greens")),
+            tooltip=["Idioma", "Nivel", "Cantidad"]
+        ).properties(
+            title="Idiomas por Nivel",
+            height=300
+        )
+        
+        st.altair_chart(c, use_container_width=True)
     else:
-        st.write("No hay datos de idiomas para mostrar.")
+        st.info("No hay datos de idiomas para mostrar.")
 else:
     st.write("Columnas de idiomas no detectadas.")
 
