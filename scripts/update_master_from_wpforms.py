@@ -268,7 +268,16 @@ def main(master_path, wpforms_path, sheet_name):
     area_cols = [c for c in dfn.columns if is_area_column(c)]
     area_labels = {c: extract_area_label(c) for c in area_cols}
 
-    dup_flags = dfn.apply(lambda r: is_duplicate(r, keys_m), axis=1)
+    if dfn.empty:
+        print("El archivo WPForms está vacío.")
+        dup_flags = pd.Series([], dtype=bool)
+    else:
+        dup_flags = dfn.apply(lambda r: is_duplicate(r, keys_m), axis=1)
+        if dup_flags is None:
+             dup_flags = pd.Series([False] * len(dfn), index=dfn.index)
+        else:
+             dup_flags = dup_flags.fillna(False).astype(bool)
+
     new_only = dfn[~dup_flags].copy()
 
     dfn["__pais_norm__"] = dfn.apply(lambda r: compute_country_norm(r, dfn.columns), axis=1)
