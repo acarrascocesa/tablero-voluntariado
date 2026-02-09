@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.env
+
+# Mac
+.DS_Store
+
+# Data processing
+backups/
+processed/
+*_TEMP.xlsx
