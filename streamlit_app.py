@@ -284,7 +284,7 @@ else:
 min_age = 0
 max_age = 100
 age_range = st.sidebar.slider("Rango de edad", min_value=min_age, max_value=max_age, value=(min_age, max_age))
-incluir_sin_edad = st.sidebar.checkbox("Incluir registros sin edad", value=True)
+incluir_sin_edad = st.sidebar.checkbox("Incluir registros sin edad o con edad fuera de rango (0–100)", value=True)
 
 # Controles de gráficos
 top_paises_n = st.sidebar.slider("Top países (N)", min_value=5, max_value=30, value=10)
@@ -325,7 +325,8 @@ if edad_col in df.columns:
     age_series = pd.to_numeric(df[edad_col], errors="coerce")
     valid_age_mask = (age_series >= age_range[0]) & (age_series <= age_range[1])
     if incluir_sin_edad:
-        mask &= (valid_age_mask | age_series.isna())
+        # Incluir también sin edad o con edad fuera del rango (ej. fechas futuras, >100)
+        mask &= (valid_age_mask | age_series.isna() | (age_series < age_range[0]) | (age_series > age_range[1]))
     else:
         mask &= valid_age_mask
 
