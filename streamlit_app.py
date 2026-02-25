@@ -66,8 +66,18 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
+def _master_file_version(path: str) -> Optional[Tuple[float, int]]:
+    """Devuelve (mtime, size) del archivo para usar como clave de caché. Si no existe, None."""
+    try:
+        st = os.stat(path)
+        return (st.st_mtime, st.st_size)
+    except Exception:
+        return None
+
+
 @st.cache_data(show_spinner=False)
-def load_data() -> Tuple[pd.DataFrame, Optional[str]]:
+def load_data(file_version: Optional[Tuple[float, int]]) -> Tuple[pd.DataFrame, Optional[str]]:
+    """Carga el maestro. file_version (mtime, size) invalida la caché cuando el archivo cambia."""
     path = "Voluntariado Base + WPForms - Areas (Dedup Nombre) - Pais Normalizado.xlsx"
     try:
         # Intentar leer 'Merged' o la primera hoja
@@ -131,7 +141,9 @@ def to_excel_bytes(df: pd.DataFrame, sheet_name: str = "Merged") -> bytes:
 
 
 # Carga de datos
-df, source_path = load_data()
+_master_path = "Voluntariado Base + WPForms - Areas (Dedup Nombre) - Pais Normalizado.xlsx"
+_master_version = _master_file_version(_master_path)
+df, source_path = load_data(_master_version)
 if source_path is None or df.empty:
     st.error("No se encontró el archivo maestro: 'Voluntariado Base + WPForms - Areas (Dedup Nombre) - Pais Normalizado.xlsx'.")
     st.stop()
