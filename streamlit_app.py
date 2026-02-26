@@ -200,9 +200,10 @@ def to_excel_bytes(df: pd.DataFrame, sheet_name: str = "Merged") -> bytes:
     return bio.read()
 
 
-# Carga de datos: intentar PostgreSQL si hay Secrets, si no usar Excel
+# Carga de datos: solo PostgreSQL (Secrets [database])
 df = pd.DataFrame()
 source_path = None
+
 def _secret(db, key: str, default=None):
     """Lee un valor de st.secrets['database'] (puede ser dict o objeto con atributos)."""
     if hasattr(db, "get"):
@@ -222,15 +223,11 @@ if hasattr(st, "secrets") and "database" in st.secrets:
                 password=password,
             )
     except Exception as e:
-        st.warning(f"No se pudo conectar a la base de datos: {e}. Usando Excel si está disponible.")
-
-if df.empty or not source_path:
-    _master_path = "Voluntariado Base + WPForms - Areas (Dedup Nombre) - Pais Normalizado.xlsx"
-    _master_version = _master_file_version(_master_path)
-    df, source_path = load_data_excel(_master_version)
+        st.error(f"No se pudo conectar a la base de datos: {e}")
+        st.stop()
 
 if source_path is None or df.empty:
-    st.error("No se encontró el archivo maestro ni conexión a la base de datos. Comprueba Secrets (database) o el Excel en el proyecto.")
+    st.error("Configura Secrets con [database] (host, user, password) en Streamlit Cloud para conectar a PostgreSQL.")
     st.stop()
 
 df = ensure_fullname(df.copy())
