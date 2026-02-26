@@ -11,3 +11,6 @@ __pycache__/
 backups/
 processed/
 *_TEMP.xlsx
+
+# Docs (no subir al repo)
+docs/
