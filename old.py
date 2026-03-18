@@ -66,49 +66,6 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# Mapeo c1..c69 (PostgreSQL) -> nombres de columna del Excel (ver docs/MAPEO_COLUMNAS_BD.md)
-BD_COLUMNAS_EXCEL = (
-    "Nombre completo: First", "Nombre completo: Last", "País de residencia", "Nacionalidad",
-    "Lugar de domicilio", "Ciudad", "Teléfono", "Correo electrónico", "Unnamed: 8", "Foto de perfil",
-    "Fecha de nacimiento", "Sexo", "Tienes seguro médico?", "Identificación", "Nivel académico",
-    "Si eres estudiante universitario, indica la carrera que estudias.",
-    "Si eres graduado universitario, indica la carrera y ocupación actual.",
-    "Si eres estudiante o graduado universitario, indica el nombre de la universidad",
-    "Idiomas que dominas y nivel de fluidez (Básico, Intermedio, Avanzado).: Ingles Básico",
-    "Idiomas que dominas y nivel de fluidez (Básico, Intermedio, Avanzado).: Ingles Intermedio",
-    "Idiomas que dominas y nivel de fluidez (Básico, Intermedio, Avanzado).: Ingles Avanzado",
-    "Idiomas que dominas y nivel de fluidez (Básico, Intermedio, Avanzado).: Español Básico",
-    "Idiomas que dominas y nivel de fluidez (Básico, Intermedio, Avanzado).: Español Intermedio",
-    "Idiomas que dominas y nivel de fluidez (Básico, Intermedio, Avanzado).: Español Avanzado",
-    "Idiomas que dominas y nivel de fluidez (Básico, Intermedio, Avanzado).: Francés básico",
-    "Idiomas que dominas y nivel de fluidez (Básico, Intermedio, Avanzado).: Francés Intermedio",
-    "Idiomas que dominas y nivel de fluidez (Básico, Intermedio, Avanzado).: Francés Avanzado",
-    "Idiomas que dominas y nivel de fluidez (Básico, Intermedio, Avanzado).: Portugués básico",
-    "Idiomas que dominas y nivel de fluidez (Básico, Intermedio, Avanzado).: Portugués Intermedio",
-    "Idiomas que dominas y nivel de fluidez (Básico, Intermedio, Avanzado).: Portugués Avanzado",
-    "Otros idiomas (especificar).",
-    "¿Tienes experiencia previa como voluntario en eventos deportivos o de otra índole?",
-    "Si respondiste sí, por favor indica el evento y el rol desempeñado.", "Disponibilidad de horario durante los juegos.",
-    "Área(s) de Interés para Voluntariado: Acreditación", "Área(s) de Interés para Voluntariado: Aeropuerto",
-    "Área(s) de Interés para Voluntariado: Alimentación e Hidratación", "Área(s) de Interés para Voluntariado: Alojamiento",
-    "Área(s) de Interés para Voluntariado: Atención a los CONs", "Área(s) de Interés para Voluntariado: Attaches",
-    "Área(s) de Interés para Voluntariado: Broadcasting", "Área(s) de Interés para Voluntariado: Dopaje",
-    "Área(s) de Interés para Voluntariado: Equipamiento Deportivo", "Área(s) de Interés para Voluntariado: Gestión de Sedes",
-    "Área(s) de Interés para Voluntariado: Gestión de Voluntariado", "Área(s) de Interés para Voluntariado: Logística",
-    "Área(s) de Interés para Voluntariado: Marketing y Comunicación (BTL-Digital-Prensa)",
-    "Área(s) de Interés para Voluntariado: Materiales e Impresos", "Área(s) de Interés para Voluntariado: Protocolo",
-    "Área(s) de Interés para Voluntariado: Radios, Impresoras y Pantallas", "Área(s) de Interés para Voluntariado: Servicio al Espectador",
-    "Área(s) de Interés para Voluntariado: Servicios Médicos", "Área(s) de Interés para Voluntariado: Sport Presentation",
-    "Área(s) de Interés para Voluntariado: Técnica Deportiva", "Área(s) de Interés para Voluntariado: Tecnología Deportiva",
-    "Área(s) de Interés para Voluntariado: Tecnología Sedes (Conectividad y Redes)",
-    "Área(s) de Interés para Voluntariado: Transporte", "Área(s) de Interés para Voluntariado: Uniformes",
-    "Área(s) de Interés para Voluntariado: Villa CC", "Talla de Camisa", "Contacto de emergencia (nombre y teléfono).",
-    "¿Tiene alguna discapacidad?", "¿Posees alguna condición médica o restricción que debamos conocer?",
-    "Explica tu condición médica:", "Describa el tipo de discapacidad y cualquier requerimiento especial que debamos tener en cuenta",
-    "Field #38: Acepto los términos y condiciones.", "Áreas de interés (lista)", "Áreas de interés (count)", "País (normalizado)",
-)
-
-
 def _master_file_version(path: str) -> Optional[Tuple[float, int]]:
     """Devuelve (mtime, size) del archivo para usar como clave de caché. Si no existe, None."""
     try:
@@ -119,10 +76,11 @@ def _master_file_version(path: str) -> Optional[Tuple[float, int]]:
 
 
 @st.cache_data(show_spinner=False)
-def load_data_excel(file_version: Optional[Tuple[float, int]]) -> Tuple[pd.DataFrame, Optional[str]]:
-    """Carga el maestro desde el Excel. file_version (mtime, size) invalida la caché cuando el archivo cambia."""
+def load_data(file_version: Optional[Tuple[float, int]]) -> Tuple[pd.DataFrame, Optional[str]]:
+    """Carga el maestro. file_version (mtime, size) invalida la caché cuando el archivo cambia."""
     path = "Voluntariado Base + WPForms - Areas (Dedup Nombre) - Pais Normalizado.xlsx"
     try:
+        # Intentar leer 'Merged' o la primera hoja
         try:
             df = pd.read_excel(path, sheet_name="Merged")
         except ValueError:
@@ -130,24 +88,6 @@ def load_data_excel(file_version: Optional[Tuple[float, int]]) -> Tuple[pd.DataF
         return df, path
     except Exception:
         return pd.DataFrame(), None
-
-
-@st.cache_data(show_spinner=False)
-def load_data_db(host: str, port: int, dbname: str, user: str, password: str) -> Tuple[pd.DataFrame, str]:
-    """Carga el maestro desde PostgreSQL (tabla voluntarios, columnas c1..c69)."""
-    import psycopg2  # solo necesario cuando hay Secrets con database
-    col_names = [f"c{i}" for i in range(1, 70)]
-    cols_sql = ", ".join(col_names)
-    conn = psycopg2.connect(host=host, port=port, dbname=dbname, user=user, password=password)
-    try:
-        df = pd.read_sql(f"SELECT {cols_sql} FROM voluntarios", conn)
-    finally:
-        conn.close()
-    df.columns = list(BD_COLUMNAS_EXCEL)
-    # La app espera numérico en Áreas de interés (count)
-    if "Áreas de interés (count)" in df.columns:
-        df["Áreas de interés (count)"] = pd.to_numeric(df["Áreas de interés (count)"], errors="coerce").fillna(0)
-    return df, "PostgreSQL"
 
 
 def ensure_fullname(df: pd.DataFrame) -> pd.DataFrame:
@@ -200,34 +140,12 @@ def to_excel_bytes(df: pd.DataFrame, sheet_name: str = "Merged") -> bytes:
     return bio.read()
 
 
-# Carga de datos: solo PostgreSQL (Secrets [database])
-df = pd.DataFrame()
-source_path = None
-
-def _secret(db, key: str, default=None):
-    """Lee un valor de st.secrets['database'] (puede ser dict o objeto con atributos)."""
-    if hasattr(db, "get"):
-        return db.get(key, default)
-    return getattr(db, key, default)
-
-if hasattr(st, "secrets") and "database" in st.secrets:
-    try:
-        db = st.secrets["database"]
-        host, user, password = _secret(db, "host"), _secret(db, "user"), _secret(db, "password")
-        if host and user and password:
-            df, source_path = load_data_db(
-                host=host,
-                port=int(_secret(db, "port") or 5432),
-                dbname=_secret(db, "dbname") or "voluntariado",
-                user=user,
-                password=password,
-            )
-    except Exception as e:
-        st.error(f"No se pudo conectar a la base de datos: {e}")
-        st.stop()
-
+# Carga de datos
+_master_path = "Voluntariado Base + WPForms - Areas (Dedup Nombre) - Pais Normalizado.xlsx"
+_master_version = _master_file_version(_master_path)
+df, source_path = load_data(_master_version)
 if source_path is None or df.empty:
-    st.error("Configura Secrets con [database] (host, user, password) en Streamlit Cloud para conectar a PostgreSQL.")
+    st.error("No se encontró el archivo maestro: 'Voluntariado Base + WPForms - Areas (Dedup Nombre) - Pais Normalizado.xlsx'.")
     st.stop()
 
 df = ensure_fullname(df.copy())
@@ -294,14 +212,6 @@ if pais_col:
 else:
     st.sidebar.write("País: columna no encontrada")
     pais_sel = []
-
-# Ciudad
-ciudad_col = "Ciudad" if "Ciudad" in df.columns else None
-if ciudad_col:
-    ciudad_vals = sorted([x for x in df.get(ciudad_col, pd.Series()).dropna().astype(str).str.strip().unique() if x])
-    ciudad_sel = st.sidebar.multiselect("Ciudad", options=ciudad_vals, default=[])
-else:
-    ciudad_sel = []
 
 # Idiomas: detectar columnas por patrón y extraer idioma y nivel
 lang_pattern = re.compile(r"Idiomas.*:\s*(.+?)\s+(B[áa]sico|Intermedio|Avanzado)", re.IGNORECASE)
@@ -394,8 +304,6 @@ if nivel_sel:
     mask &= df["Nivel académico"].astype(str).isin(nivel_sel)
 if pais_sel and pais_col:
     mask &= df[pais_col].astype(str).str.strip().isin(pais_sel)
-if ciudad_sel and ciudad_col:
-    mask &= df[ciudad_col].astype(str).str.strip().isin(ciudad_sel)
 
 # Filtro por idiomas y nivel (match ANY)
 if lang_cols and (lang_sel or level_sel):
