@@ -69,7 +69,7 @@ st.markdown("""
 # Mapeo c1..c69 (PostgreSQL) -> nombres de columna del Excel (ver docs/MAPEO_COLUMNAS_BD.md)
 BD_COLUMNAS_EXCEL = (
     "Nombre completo: First", "Nombre completo: Last", "País de residencia", "Nacionalidad",
-    "Lugar de domicilio", "Ciudad", "Teléfono", "Correo electrónico", "Unnamed: 8", "Foto de perfil",
+    "Lugar de domicilio", "Ciudad", "Teléfono", "Correo electrónico", "Foto de perfil",
     "Fecha de nacimiento", "Sexo", "Tienes seguro médico?", "Identificación", "Nivel académico",
     "Si eres estudiante universitario, indica la carrera que estudias.",
     "Si eres graduado universitario, indica la carrera y ocupación actual.",
@@ -136,7 +136,7 @@ def load_data_excel(file_version: Optional[Tuple[float, int]]) -> Tuple[pd.DataF
 def load_data_db(host: str, port: int, dbname: str, user: str, password: str) -> Tuple[pd.DataFrame, str]:
     """Carga el maestro desde PostgreSQL (tabla voluntarios, columnas c1..c69)."""
     import psycopg2  # solo necesario cuando hay Secrets con database
-    col_names = [f"c{i}" for i in range(1, 70)]
+    col_names = [f"c{i}" for i in range(1, 70) if i != 9]
     cols_sql = ", ".join(col_names)
     conn = psycopg2.connect(host=host, port=port, dbname=dbname, user=user, password=password)
     try:
@@ -263,7 +263,6 @@ id_candidates = [
     "Cédula",
     "Cedula",
     "ID",
-    "Unnamed: 8",
 ]
 id_col = next((c for c in id_candidates if c in df.columns), None)
 id_query = st.sidebar.text_input("Buscar por identificación")
