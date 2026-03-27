@@ -106,6 +106,7 @@ BD_COLUMNAS_EXCEL = (
     "¿Tiene alguna discapacidad?", "¿Posees alguna condición médica o restricción que debamos conocer?",
     "Explica tu condición médica:", "Describa el tipo de discapacidad y cualquier requerimiento especial que debamos tener en cuenta",
     "Field #38: Acepto los términos y condiciones.", "Áreas de interés (lista)", "Áreas de interés (count)", "País (normalizado)",
+    "Estado depuración",
 )
 
 
@@ -137,7 +138,7 @@ def load_data_db(host: str, port: int, dbname: str, user: str, password: str) ->
     """Carga el maestro desde PostgreSQL (tabla voluntarios, columnas c1..c69)."""
     import psycopg2  # solo necesario cuando hay Secrets con database
     col_names = [f"c{i}" for i in range(1, 70) if i != 9]
-    cols_sql = ", ".join(col_names)
+    cols_sql = ", ".join(col_names + ["estado_depuracion"])
     conn = psycopg2.connect(host=host, port=port, dbname=dbname, user=user, password=password)
     try:
         df = pd.read_sql(f"SELECT {cols_sql} FROM voluntarios", conn)
@@ -302,6 +303,14 @@ if ciudad_col:
 else:
     ciudad_sel = []
 
+# Estado de depuración
+estado_col = "Estado depuración" if "Estado depuración" in df.columns else None
+if estado_col:
+    estado_vals = sorted([x for x in df.get(estado_col, pd.Series()).dropna().astype(str).str.strip().unique() if x])
+    estado_sel = st.sidebar.multiselect("Estado depuración", options=estado_vals, default=[])
+else:
+    estado_sel = []
+
 # Idiomas: detectar columnas por patrón y extraer idioma y nivel
 lang_pattern = re.compile(r"Idiomas.*:\s*(.+?)\s+(B[áa]sico|Intermedio|Avanzado)", re.IGNORECASE)
 
@@ -395,6 +404,8 @@ if pais_sel and pais_col:
     mask &= df[pais_col].astype(str).str.strip().isin(pais_sel)
 if ciudad_sel and ciudad_col:
     mask &= df[ciudad_col].astype(str).str.strip().isin(ciudad_sel)
+if estado_sel and estado_col:
+    mask &= df[estado_col].astype(str).str.strip().isin(estado_sel)
 
 # Filtro por idiomas y nivel (match ANY)
 if lang_cols and (lang_sel or level_sel):
@@ -434,7 +445,7 @@ def kpi_card(title, value):
     </div>
     """, unsafe_allow_html=True)
 
-col1, col2, col3, col4 = st.columns(4, gap="medium")
+col1, col2, col3, col4, col5 = st.columns(5, gap="medium")
 with col1:
     kpi_card("Voluntarios", f"{len(df_filtered):,}")
 with col2:
@@ -444,6 +455,9 @@ with col3:
     kpi_card("Sexos Distintos", df_filtered.get("Sexo", pd.Series()).nunique())
 with col4:
     kpi_card("Niveles Acad.", df_filtered.get("Nivel académico", pd.Series()).nunique())
+with col5:
+    depurados = int(df_filtered.get("Estado depuración", pd.Series()).astype(str).str.strip().str.lower().eq("depurado").sum())
+    kpi_card("Depurados", f"{depurados:,}")
 
 
 # Distribuciones
@@ -499,6 +513,26 @@ with cols[2]:
             make_simple_bar(top_areas, "Área", "Cantidad", "Top 10 Áreas de Interés", sort_x="-y"),
             use_container_width=True
         )
+
+# Estado depuración
+if "Estado depuración" in df_filtered.columns:
+    st.subheader("Depuración")
+    dep_series = (
+        df_filtered["Estado depuración"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
+    dep_series = dep_series[dep_series != ""]
+    if len(dep_series) > 0:
+        dep_counts = dep_series.value_counts().reset_index()
+        dep_counts.columns = ["Estado", "Cantidad"]
+        st.altair_chart(
+            make_simple_bar(dep_counts, "Estado", "Cantidad", "Estado de depuración", sort_x="-y"),
+            use_container_width=True
+        )
+    else:
+        st.info("No hay datos de estado de depuración para mostrar.")
 
 # Gráficos adicionales
 # Gráficos adicionales
@@ -586,7 +620,20 @@ else:
 
 # Tabla
 st.subheader("Datos filtrados")
-df_display = ensure_arrow_compatible(df_filtered)
+df_display = df_filtered.copy()
+preferred_first = [
+    "Estado depuración",
+    "Nombre completo",
+    "Nombre completo: First",
+    "Nombre completo: Last",
+    "Identificación",
+    "Correo electrónico",
+    "Ciudad",
+    "País (normalizado)",
+]
+ordered_cols = [c for c in preferred_first if c in df_display.columns] + [c for c in df_display.columns if c not in preferred_first]
+df_display = df_display[ordered_cols]
+df_display = ensure_arrow_compatible(df_display)
 st.dataframe(df_display, width="stretch")
 
 
