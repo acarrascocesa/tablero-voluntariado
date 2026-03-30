@@ -493,7 +493,9 @@ with col2:
 with col3:
     kpi_card("Sexos Distintos", df_filtered.get("Sexo", pd.Series()).nunique())
 with col4:
-    kpi_card("Niveles Acad.", df_filtered.get("Nivel académico", pd.Series()).nunique())
+    _cap_s = df_filtered.get("Capacitado", pd.Series([False] * len(df_filtered), dtype=object))
+    _n_cap = int(_cap_s.eq(True).sum())
+    kpi_card("Capacitados", f"{_n_cap:,}")
 with col5:
     depurados = int(df_filtered.get("Estado depuración", pd.Series()).astype(str).str.strip().str.lower().eq("depurado").sum())
     kpi_card("Depurados", f"{depurados:,}")
