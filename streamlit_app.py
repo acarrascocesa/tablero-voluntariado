@@ -12,10 +12,9 @@ import altair as alt
 
 # Opción del multiselect para filtrar filas con estado_depuración NULL / vacío en BD
 ESTADO_DEPURACION_SIN_ASIGNAR = "(Sin estado)"
-# Filtro multiselect columnas capacitado (boolean NULL en BD)
-CAPACITADO_FILTRO_SI = "Sí (capacitado)"
+# Filtro Capacitado: NULL en BD se trata como "No" (sin capacitar / sin registrar)
+CAPACITADO_FILTRO_SI = "Sí"
 CAPACITADO_FILTRO_NO = "No"
-CAPACITADO_FILTRO_SIN_DATO = "(Sin dato)"
 
 # Configuración de página con logo si existe
 logo_path = "assets/logo.png"
@@ -323,10 +322,10 @@ if estado_col:
 else:
     estado_sel = []
 
-# Capacitado (sí / no / sin dato)
+# Capacitado (Sí / No; NULL cuenta como No)
 cap_col = "Capacitado" if "Capacitado" in df.columns else None
 if cap_col:
-    cap_opciones = [CAPACITADO_FILTRO_SIN_DATO, CAPACITADO_FILTRO_SI, CAPACITADO_FILTRO_NO]
+    cap_opciones = [CAPACITADO_FILTRO_SI, CAPACITADO_FILTRO_NO]
     cap_sel = st.sidebar.multiselect("Capacitado", options=cap_opciones, default=[])
 else:
     cap_sel = []
@@ -439,12 +438,12 @@ if cap_sel and cap_col:
     s_cap = df[cap_col]
     cond_cap = pd.Series([False] * len(df))
     for val in cap_sel:
-        if val == CAPACITADO_FILTRO_SIN_DATO:
-            cond_cap |= s_cap.isna()
-        elif val == CAPACITADO_FILTRO_SI:
+        if val == CAPACITADO_FILTRO_SI:
             cond_cap |= s_cap.apply(lambda x: x is True or str(x).lower() == "true")
         elif val == CAPACITADO_FILTRO_NO:
-            cond_cap |= s_cap.apply(lambda x: x is False or str(x).lower() == "false")
+            cond_cap |= s_cap.isna() | s_cap.apply(
+                lambda x: x is False or str(x).lower() == "false"
+            )
     mask &= cond_cap
 
 # Filtro por idiomas y nivel (match ANY)
@@ -666,13 +665,9 @@ if cap_display in df_display.columns:
     df_display = df_display.copy()
 
     def _fmt_capacitado(v):
-        if v is None or (isinstance(v, float) and pd.isna(v)):
-            return "—"
         if v is True or str(v).lower() == "true":
             return "Sí"
-        if v is False or str(v).lower() == "false":
-            return "No"
-        return str(v)
+        return "No"
 
     df_display[cap_display] = df_display[cap_display].apply(_fmt_capacitado)
 preferred_first = [
