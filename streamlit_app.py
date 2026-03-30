@@ -10,6 +10,8 @@ from PIL import Image
 import streamlit as st
 import altair as alt
 
+# Opción del multiselect para filtrar filas con estado_depuración NULL / vacío en BD
+ESTADO_DEPURACION_SIN_ASIGNAR = "(Sin estado)"
 
 # Configuración de página con logo si existe
 logo_path = "assets/logo.png"
@@ -306,7 +308,12 @@ else:
 # Estado de depuración
 estado_col = "Estado depuración" if "Estado depuración" in df.columns else None
 if estado_col:
-    estado_vals = sorted([x for x in df.get(estado_col, pd.Series()).dropna().astype(str).str.strip().unique() if x])
+    s_est = df.get(estado_col, pd.Series())
+    estado_vals_non_null = sorted(
+        [x for x in s_est.dropna().astype(str).str.strip().unique() if x and x.lower() != "nan"]
+    )
+    # Incluir opción explícita para NULL (antes no aparecía al usar dropna() en las opciones)
+    estado_vals = [ESTADO_DEPURACION_SIN_ASIGNAR] + estado_vals_non_null
     estado_sel = st.sidebar.multiselect("Estado depuración", options=estado_vals, default=[])
 else:
     estado_sel = []
@@ -405,7 +412,15 @@ if pais_sel and pais_col:
 if ciudad_sel and ciudad_col:
     mask &= df[ciudad_col].astype(str).str.strip().isin(ciudad_sel)
 if estado_sel and estado_col:
-    mask &= df[estado_col].astype(str).str.strip().isin(estado_sel)
+    cond_estado = pd.Series([False] * len(df))
+    for val in estado_sel:
+        if val == ESTADO_DEPURACION_SIN_ASIGNAR:
+            ec = df[estado_col]
+            nullish = ec.isna() | ec.astype(str).str.strip().isin(["", "nan", "None", "<NA>"])
+            cond_estado |= nullish
+        else:
+            cond_estado |= df[estado_col].astype(str).str.strip().eq(val)
+    mask &= cond_estado
 
 # Filtro por idiomas y nivel (match ANY)
 if lang_cols and (lang_sel or level_sel):
