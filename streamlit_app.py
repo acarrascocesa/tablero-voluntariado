@@ -12,8 +12,10 @@ import altair as alt
 
 # Opción del multiselect para filtrar filas con estado_depuración NULL / vacío en BD
 ESTADO_DEPURACION_SIN_ASIGNAR = "(Sin estado)"
-# capacitacion_grupo NULL en BD
-CAPACITACION_SIN_REGISTRAR = "(Sin capacitación registrada)"
+# Filtro multiselect columnas capacitado (boolean NULL en BD)
+CAPACITADO_FILTRO_SI = "Sí (capacitado)"
+CAPACITADO_FILTRO_NO = "No"
+CAPACITADO_FILTRO_SIN_DATO = "(Sin dato)"
 
 # Configuración de página con logo si existe
 logo_path = "assets/logo.png"
@@ -111,7 +113,7 @@ BD_COLUMNAS_EXCEL = (
     "Explica tu condición médica:", "Describa el tipo de discapacidad y cualquier requerimiento especial que debamos tener en cuenta",
     "Field #38: Acepto los términos y condiciones.", "Áreas de interés (lista)", "Áreas de interés (count)", "País (normalizado)",
     "Estado depuración",
-    "Capacitación (grupo)",
+    "Capacitado",
 )
 
 
@@ -143,7 +145,7 @@ def load_data_db(host: str, port: int, dbname: str, user: str, password: str) ->
     """Carga el maestro desde PostgreSQL (tabla voluntarios, columnas c1..c69)."""
     import psycopg2  # solo necesario cuando hay Secrets con database
     col_names = [f"c{i}" for i in range(1, 70) if i != 9]
-    cols_sql = ", ".join(col_names + ["estado_depuracion", "capacitacion_grupo"])
+    cols_sql = ", ".join(col_names + ["estado_depuracion", "capacitado"])
     conn = psycopg2.connect(host=host, port=port, dbname=dbname, user=user, password=password)
     try:
         df = pd.read_sql(f"SELECT {cols_sql} FROM voluntarios", conn)
@@ -321,13 +323,11 @@ if estado_col:
 else:
     estado_sel = []
 
-# Capacitación (grupo)
-cap_col = "Capacitación (grupo)" if "Capacitación (grupo)" in df.columns else None
+# Capacitado (sí / no / sin dato)
+cap_col = "Capacitado" if "Capacitado" in df.columns else None
 if cap_col:
-    cap_numeric = pd.to_numeric(df[cap_col], errors="coerce")
-    grupos_unicos = sorted({int(x) for x in cap_numeric.dropna().unique().tolist()})
-    cap_opciones = [CAPACITACION_SIN_REGISTRAR] + [f"Grupo {g}" for g in grupos_unicos]
-    cap_sel = st.sidebar.multiselect("Capacitación (grupo)", options=cap_opciones, default=[])
+    cap_opciones = [CAPACITADO_FILTRO_SIN_DATO, CAPACITADO_FILTRO_SI, CAPACITADO_FILTRO_NO]
+    cap_sel = st.sidebar.multiselect("Capacitado", options=cap_opciones, default=[])
 else:
     cap_sel = []
 
@@ -436,15 +436,15 @@ if estado_sel and estado_col:
     mask &= cond_estado
 
 if cap_sel and cap_col:
-    cap_num = pd.to_numeric(df[cap_col], errors="coerce")
+    s_cap = df[cap_col]
     cond_cap = pd.Series([False] * len(df))
     for val in cap_sel:
-        if val == CAPACITACION_SIN_REGISTRAR:
-            cond_cap |= cap_num.isna()
-        else:
-            m = re.match(r"^Grupo (\d+)$", str(val).strip())
-            if m:
-                cond_cap |= cap_num.eq(int(m.group(1)))
+        if val == CAPACITADO_FILTRO_SIN_DATO:
+            cond_cap |= s_cap.isna()
+        elif val == CAPACITADO_FILTRO_SI:
+            cond_cap |= s_cap.apply(lambda x: x is True or str(x).lower() == "true")
+        elif val == CAPACITADO_FILTRO_NO:
+            cond_cap |= s_cap.apply(lambda x: x is False or str(x).lower() == "false")
     mask &= cond_cap
 
 # Filtro por idiomas y nivel (match ANY)
@@ -661,13 +661,23 @@ else:
 # Tabla
 st.subheader("Datos filtrados")
 df_display = df_filtered.copy()
-cap_display = "Capacitación (grupo)"
+cap_display = "Capacitado"
 if cap_display in df_display.columns:
     df_display = df_display.copy()
-    df_display[cap_display] = pd.to_numeric(df_display[cap_display], errors="coerce").astype("Int64")
+
+    def _fmt_capacitado(v):
+        if v is None or (isinstance(v, float) and pd.isna(v)):
+            return "—"
+        if v is True or str(v).lower() == "true":
+            return "Sí"
+        if v is False or str(v).lower() == "false":
+            return "No"
+        return str(v)
+
+    df_display[cap_display] = df_display[cap_display].apply(_fmt_capacitado)
 preferred_first = [
     "Estado depuración",
-    "Capacitación (grupo)",
+    "Capacitado",
     "Nombre completo",
     "Nombre completo: First",
     "Nombre completo: Last",
