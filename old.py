@@ -12,6 +12,9 @@ import altair as alt
 
 # Opción del multiselect para filtrar filas con estado_depuración NULL / vacío en BD
 ESTADO_DEPURACION_SIN_ASIGNAR = "(Sin estado)"
+# Filtro Capacitado: NULL en BD se trata como "No" (sin capacitar / sin registrar)
+CAPACITADO_FILTRO_SI = "Sí"
+CAPACITADO_FILTRO_NO = "No"
 
 # Configuración de página con logo si existe
 logo_path = "assets/logo.png"
@@ -109,6 +112,7 @@ BD_COLUMNAS_EXCEL = (
     "Explica tu condición médica:", "Describa el tipo de discapacidad y cualquier requerimiento especial que debamos tener en cuenta",
     "Field #38: Acepto los términos y condiciones.", "Áreas de interés (lista)", "Áreas de interés (count)", "País (normalizado)",
     "Estado depuración",
+    "Capacitado",
 )
 
 
@@ -140,7 +144,7 @@ def load_data_db(host: str, port: int, dbname: str, user: str, password: str) ->
     """Carga el maestro desde PostgreSQL (tabla voluntarios, columnas c1..c69)."""
     import psycopg2  # solo necesario cuando hay Secrets con database
     col_names = [f"c{i}" for i in range(1, 70) if i != 9]
-    cols_sql = ", ".join(col_names + ["estado_depuracion"])
+    cols_sql = ", ".join(col_names + ["estado_depuracion", "capacitado"])
     conn = psycopg2.connect(host=host, port=port, dbname=dbname, user=user, password=password)
     try:
         df = pd.read_sql(f"SELECT {cols_sql} FROM voluntarios", conn)
@@ -318,6 +322,14 @@ if estado_col:
 else:
     estado_sel = []
 
+# Capacitado (Sí / No; NULL cuenta como No)
+cap_col = "Capacitado" if "Capacitado" in df.columns else None
+if cap_col:
+    cap_opciones = [CAPACITADO_FILTRO_SI, CAPACITADO_FILTRO_NO]
+    cap_sel = st.sidebar.multiselect("Capacitado", options=cap_opciones, default=[])
+else:
+    cap_sel = []
+
 # Idiomas: detectar columnas por patrón y extraer idioma y nivel
 lang_pattern = re.compile(r"Idiomas.*:\s*(.+?)\s+(B[áa]sico|Intermedio|Avanzado)", re.IGNORECASE)
 
@@ -422,6 +434,18 @@ if estado_sel and estado_col:
             cond_estado |= df[estado_col].astype(str).str.strip().eq(val)
     mask &= cond_estado
 
+if cap_sel and cap_col:
+    s_cap = df[cap_col]
+    cond_cap = pd.Series([False] * len(df))
+    for val in cap_sel:
+        if val == CAPACITADO_FILTRO_SI:
+            cond_cap |= s_cap.apply(lambda x: x is True or str(x).lower() == "true")
+        elif val == CAPACITADO_FILTRO_NO:
+            cond_cap |= s_cap.isna() | s_cap.apply(
+                lambda x: x is False or str(x).lower() == "false"
+            )
+    mask &= cond_cap
+
 # Filtro por idiomas y nivel (match ANY)
 if lang_cols and (lang_sel or level_sel):
     # columnas candidatas en función de selección
@@ -469,7 +493,9 @@ with col2:
 with col3:
     kpi_card("Sexos Distintos", df_filtered.get("Sexo", pd.Series()).nunique())
 with col4:
-    kpi_card("Niveles Acad.", df_filtered.get("Nivel académico", pd.Series()).nunique())
+    _cap_s = df_filtered.get("Capacitado", pd.Series([False] * len(df_filtered), dtype=object))
+    _n_cap = int(_cap_s.eq(True).sum())
+    kpi_card("Capacitados", f"{_n_cap:,}")
 with col5:
     depurados = int(df_filtered.get("Estado depuración", pd.Series()).astype(str).str.strip().str.lower().eq("depurado").sum())
     kpi_card("Depurados", f"{depurados:,}")
@@ -636,8 +662,19 @@ else:
 # Tabla
 st.subheader("Datos filtrados")
 df_display = df_filtered.copy()
+cap_display = "Capacitado"
+if cap_display in df_display.columns:
+    df_display = df_display.copy()
+
+    def _fmt_capacitado(v):
+        if v is True or str(v).lower() == "true":
+            return "Sí"
+        return "No"
+
+    df_display[cap_display] = df_display[cap_display].apply(_fmt_capacitado)
 preferred_first = [
     "Estado depuración",
+    "Capacitado",
     "Nombre completo",
     "Nombre completo: First",
     "Nombre completo: Last",
