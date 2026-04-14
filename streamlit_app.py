@@ -115,12 +115,8 @@ BD_COLUMNAS_EXCEL = (
     "Capacitado",
 )
 
-# Tablas PostgreSQL permitidas en el tablero (evita inyección en el nombre de tabla).
-PG_TABLE_OPTIONS: dict[str, str] = {
-    "voluntarios": "Maestro Voluntario",
-    "voluntarios_reg_snapshot": "Maestro Bornan",
-}
-PG_TABLE_WHITELIST = frozenset(PG_TABLE_OPTIONS.keys())
+# Tablero: solo Maestro Bornan (snapshot RegRequest en PostgreSQL).
+PG_TABLE_BORNAN = "voluntarios_reg_snapshot"
 
 
 def _master_file_version(path: str) -> Optional[Tuple[float, int]]:
@@ -147,31 +143,21 @@ def load_data_excel(file_version: Optional[Tuple[float, int]]) -> Tuple[pd.DataF
 
 
 @st.cache_data(show_spinner=False)
-def load_data_db(
-    host: str,
-    port: int,
-    dbname: str,
-    user: str,
-    password: str,
-    pg_table: str = "voluntarios",
-) -> Tuple[pd.DataFrame, str]:
-    """Carga el maestro desde PostgreSQL (columnas c1..c69 + estado_depuracion + capacitado)."""
+def load_data_db(host: str, port: int, dbname: str, user: str, password: str) -> Tuple[pd.DataFrame, str]:
+    """Carga Maestro Bornan desde PostgreSQL (columnas c1..c69 + estado_depuracion + capacitado)."""
     import psycopg2  # solo necesario cuando hay Secrets con database
-    if pg_table not in PG_TABLE_WHITELIST:
-        raise ValueError(f"Tabla PostgreSQL no permitida: {pg_table!r}")
     col_names = [f"c{i}" for i in range(1, 70) if i != 9]
     cols_sql = ", ".join(col_names + ["estado_depuracion", "capacitado"])
     conn = psycopg2.connect(host=host, port=port, dbname=dbname, user=user, password=password)
     try:
-        df = pd.read_sql(f"SELECT {cols_sql} FROM {pg_table}", conn)
+        df = pd.read_sql(f"SELECT {cols_sql} FROM {PG_TABLE_BORNAN}", conn)
     finally:
         conn.close()
     df.columns = list(BD_COLUMNAS_EXCEL)
     # La app espera numérico en Áreas de interés (count)
     if "Áreas de interés (count)" in df.columns:
         df["Áreas de interés (count)"] = pd.to_numeric(df["Áreas de interés (count)"], errors="coerce").fillna(0)
-    label = PG_TABLE_OPTIONS.get(pg_table, pg_table)
-    return df, f"PostgreSQL — {label}"
+    return df, "PostgreSQL — Maestro Bornan"
 
 
 def ensure_fullname(df: pd.DataFrame) -> pd.DataFrame:
@@ -224,10 +210,9 @@ def to_excel_bytes(df: pd.DataFrame, sheet_name: str = "Merged") -> bytes:
     return bio.read()
 
 
-# Carga de datos: solo PostgreSQL (Secrets [database])
+# Carga de datos: solo PostgreSQL (Secrets [database]) → Maestro Bornan
 df = pd.DataFrame()
 source_path = None
-pg_table_selected = "voluntarios"
 
 
 def _secret(db, key: str, default=None):
@@ -243,13 +228,6 @@ if hasattr(st, "secrets") and "database" in st.secrets:
             st.sidebar.image(logo_path, width="stretch")
         except Exception:
             pass
-    st.sidebar.header("Fuente de datos")
-    pg_table_selected = st.sidebar.selectbox(
-        "Tabla PostgreSQL",
-        options=list(PG_TABLE_OPTIONS.keys()),
-        format_func=lambda k: PG_TABLE_OPTIONS[k],
-        help="Maestro Voluntario: tabla `voluntarios`. Maestro Bornan: snapshot RegRequest (`voluntarios_reg_snapshot`), misma estructura con depuración/capacitación enriquecidas donde aplica.",
-    )
     try:
         db = st.secrets["database"]
         host, user, password = _secret(db, "host"), _secret(db, "user"), _secret(db, "password")
@@ -260,7 +238,6 @@ if hasattr(st, "secrets") and "database" in st.secrets:
                 dbname=_secret(db, "dbname") or "voluntariado",
                 user=user,
                 password=password,
-                pg_table=pg_table_selected,
             )
     except Exception as e:
         st.error(f"No se pudo conectar a la base de datos: {e}")
@@ -275,8 +252,8 @@ if source_path is None:
 
 if df.empty:
     st.warning(
-        f"La tabla **{pg_table_selected}** está vacía. Elige otra fuente o recarga **Maestro Bornan** con "
-        "`cargar_regrequest_snapshot.py`."
+        "La tabla **Maestro Bornan** (`voluntarios_reg_snapshot`) está vacía. "
+        "Recarga con `cargar_regrequest_snapshot.py`."
     )
     st.stop()
 
