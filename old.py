@@ -115,6 +115,9 @@ BD_COLUMNAS_EXCEL = (
     "Capacitado",
 )
 
+# Tablero: solo Maestro Bornan (snapshot RegRequest en PostgreSQL).
+PG_TABLE_BORNAN = "voluntarios_reg_snapshot"
+
 
 def _master_file_version(path: str) -> Optional[Tuple[float, int]]:
     """Devuelve (mtime, size) del archivo para usar como clave de caché. Si no existe, None."""
@@ -141,20 +144,20 @@ def load_data_excel(file_version: Optional[Tuple[float, int]]) -> Tuple[pd.DataF
 
 @st.cache_data(show_spinner=False)
 def load_data_db(host: str, port: int, dbname: str, user: str, password: str) -> Tuple[pd.DataFrame, str]:
-    """Carga el maestro desde PostgreSQL (tabla voluntarios, columnas c1..c69)."""
+    """Carga Maestro Bornan desde PostgreSQL (columnas c1..c69 + estado_depuracion + capacitado)."""
     import psycopg2  # solo necesario cuando hay Secrets con database
     col_names = [f"c{i}" for i in range(1, 70) if i != 9]
     cols_sql = ", ".join(col_names + ["estado_depuracion", "capacitado"])
     conn = psycopg2.connect(host=host, port=port, dbname=dbname, user=user, password=password)
     try:
-        df = pd.read_sql(f"SELECT {cols_sql} FROM voluntarios", conn)
+        df = pd.read_sql(f"SELECT {cols_sql} FROM {PG_TABLE_BORNAN}", conn)
     finally:
         conn.close()
     df.columns = list(BD_COLUMNAS_EXCEL)
     # La app espera numérico en Áreas de interés (count)
     if "Áreas de interés (count)" in df.columns:
         df["Áreas de interés (count)"] = pd.to_numeric(df["Áreas de interés (count)"], errors="coerce").fillna(0)
-    return df, "PostgreSQL"
+    return df, "PostgreSQL — Maestro Bornan"
 
 
 def ensure_fullname(df: pd.DataFrame) -> pd.DataFrame:
@@ -207,9 +210,10 @@ def to_excel_bytes(df: pd.DataFrame, sheet_name: str = "Merged") -> bytes:
     return bio.read()
 
 
-# Carga de datos: solo PostgreSQL (Secrets [database])
+# Carga de datos: solo PostgreSQL (Secrets [database]) → Maestro Bornan
 df = pd.DataFrame()
 source_path = None
+
 
 def _secret(db, key: str, default=None):
     """Lee un valor de st.secrets['database'] (puede ser dict o objeto con atributos)."""
@@ -217,7 +221,13 @@ def _secret(db, key: str, default=None):
         return db.get(key, default)
     return getattr(db, key, default)
 
+
 if hasattr(st, "secrets") and "database" in st.secrets:
+    if os.path.exists(logo_path):
+        try:
+            st.sidebar.image(logo_path, width="stretch")
+        except Exception:
+            pass
     try:
         db = st.secrets["database"]
         host, user, password = _secret(db, "host"), _secret(db, "user"), _secret(db, "password")
@@ -232,9 +242,19 @@ if hasattr(st, "secrets") and "database" in st.secrets:
     except Exception as e:
         st.error(f"No se pudo conectar a la base de datos: {e}")
         st.stop()
-
-if source_path is None or df.empty:
+else:
     st.error("Configura Secrets con [database] (host, user, password) en Streamlit Cloud para conectar a PostgreSQL.")
+    st.stop()
+
+if source_path is None:
+    st.error("No se pudo obtener datos de PostgreSQL.")
+    st.stop()
+
+if df.empty:
+    st.warning(
+        "La tabla **Maestro Bornan** (`voluntarios_reg_snapshot`) está vacía. "
+        "Recarga con `cargar_regrequest_snapshot.py`."
+    )
     st.stop()
 
 df = ensure_fullname(df.copy())
@@ -250,10 +270,8 @@ def ensure_arrow_compatible(df_in: pd.DataFrame) -> pd.DataFrame:
 
 
 # Sidebar: controles y filtros
-if os.path.exists(logo_path):
-    st.sidebar.image(logo_path, width="stretch")
-
 st.sidebar.header("Controles")
+st.sidebar.caption(f"Origen: {source_path}")
 
 # Búsqueda por nombre
 query = st.sidebar.text_input("Buscar por nombre")
@@ -493,8 +511,10 @@ with col2:
 with col3:
     kpi_card("Sexos Distintos", df_filtered.get("Sexo", pd.Series()).nunique())
 with col4:
-    _cap_s = df_filtered.get("Capacitado", pd.Series([False] * len(df_filtered), dtype=object))
-    _n_cap = int(_cap_s.eq(True).sum())
+    if "Capacitado" in df_filtered.columns:
+        _n_cap = int(df_filtered["Capacitado"].eq(True).sum())
+    else:
+        _n_cap = 0
     kpi_card("Capacitados", f"{_n_cap:,}")
 with col5:
     depurados = int(df_filtered.get("Estado depuración", pd.Series()).astype(str).str.strip().str.lower().eq("depurado").sum())

@@ -187,19 +187,63 @@ def compute_age(d: pd.Timestamp) -> Optional[int]:
         return None
 
 
-def filter_by_areas(df: pd.DataFrame, selected_areas: List[str], match_all: bool) -> pd.Series:
+_AREA_COL_PREFIX = "Área(s) de Interés para Voluntariado: "
+_KNOWN_AREA_NAMES = sorted(
+    c[len(_AREA_COL_PREFIX) :]
+    for c in BD_COLUMNAS_EXCEL
+    if c.startswith(_AREA_COL_PREFIX)
+)
+
+
+def _parse_areas_lista(text: str) -> List[str]:
+    """Lista c67: WPForms usa ';', RegRequest/Bornan suele usar ','."""
+    if not text or str(text).strip().lower() in ("nan", "none", ""):
+        return []
+    parts = re.split(r"[;,]", str(text))
+    return [p.strip() for p in parts if p.strip()]
+
+
+def _area_columns_in_df(df: pd.DataFrame) -> dict[str, str]:
+    """Nombre corto del área → nombre de columna en el DataFrame."""
+    return {
+        c[len(_AREA_COL_PREFIX) :]: c
+        for c in df.columns
+        if isinstance(c, str) and c.startswith(_AREA_COL_PREFIX)
+    }
+
+
+def _volunteer_area_set(row: pd.Series, area_cols: dict[str, str], lista_col: str) -> set[str]:
+    chosen: set[str] = set()
+    for name, col in area_cols.items():
+        v = row.get(col)
+        if v is None or (isinstance(v, float) and pd.isna(v)):
+            continue
+        if str(v).strip().lower() in ("sí", "si", "yes", "true", "1"):
+            chosen.add(name)
+    if lista_col in row.index:
+        chosen.update(_parse_areas_lista(str(row.get(lista_col, "") or "")))
+    return chosen
+
+
+def filter_by_areas(
+    df: pd.DataFrame,
+    selected_areas: List[str],
+    match_all: bool,
+    area_cols: dict[str, str],
+    lista_col: str,
+) -> pd.Series:
     if not selected_areas:
         return pd.Series([True] * len(df))
-    col = "Áreas de interés (lista)"
-    if col not in df.columns:
+    if not area_cols and lista_col not in df.columns:
         return pd.Series([True] * len(df))
-    lists = df[col].fillna("").astype(str)
-    def has_areas(s: str) -> bool:
-        items = [x.strip() for x in s.split(";") if x.strip()]
+
+    def has_areas(row: pd.Series) -> bool:
+        items = _volunteer_area_set(row, area_cols, lista_col)
         if match_all:
             return all(a in items for a in selected_areas)
         return any(a in items for a in selected_areas)
-    return lists.apply(has_areas)
+
+    return df.apply(has_areas, axis=1)
 
 
 def to_excel_bytes(df: pd.DataFrame, sheet_name: str = "Merged") -> bytes:
@@ -396,17 +440,17 @@ else:
 
 # Áreas de interés
 areas_col = "Áreas de interés (lista)"
-areas_options: List[str] = []
-if areas_col in df.columns:
+_area_cols_map = _area_columns_in_df(df)
+areas_options: List[str] = _KNOWN_AREA_NAMES if _area_cols_map else []
+if not areas_options and areas_col in df.columns:
     all_areas = (
         df[areas_col]
         .dropna()
         .astype(str)
-        .str.split(";")
+        .apply(_parse_areas_lista)
         .explode()
-        .str.strip()
     )
-    areas_options = sorted([x for x in all_areas.unique() if x])
+    areas_options = sorted([x for x in all_areas.unique() if x and str(x) != "nan"])
 areas_sel = st.sidebar.multiselect("Áreas de interés", options=areas_options, default=[])
 match_all = st.sidebar.checkbox("Coincidir todas las áreas seleccionadas", value=False)
 
@@ -477,7 +521,7 @@ if lang_cols and (lang_sel or level_sel):
             s = df[c].astype(str).str.strip()
             any_lang |= (~s.eq("") & ~df[c].isna())
         mask &= any_lang
-areas_mask = filter_by_areas(df, areas_sel, match_all)
+areas_mask = filter_by_areas(df, areas_sel, match_all, _area_cols_map, areas_col)
 mask &= areas_mask
 
 if edad_col in df.columns:
@@ -557,23 +601,22 @@ with cols[1]:
             use_container_width=True
         )
 with cols[2]:
-    if areas_col in df_filtered.columns:
-        top_areas = (
-            df_filtered[areas_col]
-            .dropna()
-            .astype(str)
-            .str.split(";")
-            .explode()
-            .str.strip()
-            .value_counts()
-            .head(10)
-            .reset_index()
-        )
-        top_areas.columns = ["Área", "Cantidad"]
-        st.altair_chart(
-            make_simple_bar(top_areas, "Área", "Cantidad", "Top 10 Áreas de Interés", sort_x="-y"),
-            use_container_width=True
-        )
+    if _area_cols_map or areas_col in df_filtered.columns:
+        area_rows: List[str] = []
+        for _, row in df_filtered.iterrows():
+            area_rows.extend(_volunteer_area_set(row, _area_cols_map, areas_col))
+        if area_rows:
+            top_areas = (
+                pd.Series(area_rows)
+                .value_counts()
+                .head(10)
+                .reset_index()
+            )
+            top_areas.columns = ["Área", "Cantidad"]
+            st.altair_chart(
+                make_simple_bar(top_areas, "Área", "Cantidad", "Top 10 Áreas de Interés", sort_x="-y"),
+                use_container_width=True
+            )
 
 # Estado depuración
 if "Estado depuración" in df_filtered.columns:
